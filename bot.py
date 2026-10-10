@@ -54,20 +54,6 @@ async def cmd_start(message: Message):
     kb.button(text="⚡ minerasearch - канал", url="https://t.me/minerasearch")
     await message.answer("👋 Привет!", reply_markup=kb.as_markup())
 
-@router.message(Command("search"))
-async def cmd_search(message: Message):
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        await message.answer("1. Стадия\nВведите username")
-        return
-    
-    username = parts[1].strip()
-    await message.answer("Поиск...")
-    await message.answer(
-        f"Вероятнее вы имели ввиду {username} — имя пользователя\n"
-        f"например: <!> id аккаунта например 5837405541"
-    )
-
 @router.message(F.text)
 async def handle_target(message: Message):
     target = message.text.strip()
