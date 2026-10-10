@@ -1,13 +1,11 @@
 import asyncio
 import os
-import sqlite3
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 TOKEN = os.getenv("BOT_TOKEN")
-DB_PATH = "osint.db"
 
 router = Router()
 bot = Bot(token=TOKEN)
@@ -20,62 +18,43 @@ TRANSLATIONS = {
     "ru": {
         "start": "👋 Привет!",
         "menu_title": "📂 Главное меню:",
-        "btn_fio": "🔍 Поиск по ФИО",
-        "enter_fio": "Введите ФИО для поиска:",
+        "btn_fio": "🔍 Поиск по ФИО и соцсетям",
+        "enter_fio": "Введите ФИО и возраст (например: Иванов Иван 25):",
+        "searching": "[*] Сканирование соцсетей (VK, Facebook, OK, Telegram)...",
         "not_found": "[-] Ничего не найдено."
     },
     "en": {
         "start": "👋 Hello!",
         "menu_title": "📂 Main menu:",
-        "btn_fio": "🔍 Full Name Search",
-        "enter_fio": "Enter full name to search:",
+        "btn_fio": "🔍 Full Name & Socials Search",
+        "enter_fio": "Enter full name and age (e.g., John Smith 25):",
+        "searching": "[*] Scanning social networks...",
         "not_found": "[-] Nothing found."
     }
 }
 
-def init_db():
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS targets (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                fio TEXT,
-                phone TEXT,
-                telegram TEXT,
-                tg_id TEXT,
-                vk TEXT,
-                facebook TEXT,
-                ok TEXT,
-                max TEXT
-            )
-        """)
-        conn.commit()
+async def search_socials(query: str) -> str:
+    encoded_q = query.replace(" ", "+")
+    
+    vk_link = f"https://vk.com/search?c[section]=people&c[q]={encoded_q}"
+    ok_link = f"https://ok.ru/search?st.query={encoded_q}"
+    fb_link = f"https://www.facebook.com/public/{encoded_q}"
+    
+    parts = query.split()
+    first_name = parts[0] if parts else query
 
-def search_db(query: str) -> str:
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT phone, telegram, tg_id, vk, facebook, ok, max 
-            FROM targets 
-            WHERE fio LIKE ? OR phone LIKE ? OR telegram LIKE ?
-        """, (f"%{query}%", f"%{query}%", f"%{query}%"))
-        rows = cursor.fetchall()
-        
-        if not rows:
-            return ""
-        
-        output = []
-        for r in rows:
-            output.append(
-                f"🔍 Найдено совпадение:\n"
-                f"📱 Телефон: {r[0] or 'нет'}\n"
-                f"💬 Telegram: @{r[1] or 'нет'}\n"
-                f"🆔 Telegram ID: {r[2] or 'нет'}\n"
-                f"🌐 VK: {r[3] or 'нет'}\n"
-                f"📘 Facebook: {r[4] or 'нет'}\n"
-                f"🟢 Одноклассники: {r[5] or 'нет'}\n"
-                f"💬 MAX: {r[6] or 'нет'}"
-            )
-        return "\n\n".join(output)
+    results = (
+        f"🔍 <b>Результаты поиска для:</b> {query}\n\n"
+        f"🌐 <b>VKontakte:</b>\n"
+        f"• <a href='{vk_link}'>Открыть профили и фильтр по возрасту в VK</a>\n\n"
+        f"🟢 <b>Одноклассники:</b>\n"
+        f"• <a href='{ok_link}'>Открыть поиск в Одноклассниках</a>\n\n"
+        f"📘 <b>Facebook:</b>\n"
+        f"• <a href='{fb_link}'>Открыть публичный поиск Facebook</a>\n\n"
+        f"💬 <b>Telegram:</b>\n"
+        f"• <a href='https://t.me/{first_name}'>@{first_name}</a>"
+    )
+    return results
 
 @router.message(Command("start"))
 async def cmd_start(message: Message):
@@ -125,14 +104,13 @@ async def handle_text(message: Message):
         user_states.pop(user_id, None)
         query = message.text.strip()
         
-        result = search_db(query)
-        if not result:
-            result = TRANSLATIONS[lang]["not_found"]
-            
-        await message.answer(result)
+        msg = await message.answer(TRANSLATIONS[lang]["searching"])
+        await asyncio.sleep(0.5)
+        
+        result = await search_socials(query)
+        await msg.edit_text(result, parse_mode="HTML", disable_web_page_preview=True)
 
 async def main():
-    init_db()
     dp.include_router(router)
     await dp.start_polling(bot)
 
