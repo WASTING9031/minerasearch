@@ -1,11 +1,13 @@
 import asyncio
 import os
+import sqlite3
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 TOKEN = os.getenv("BOT_TOKEN")
+DB_PATH = "osint.db"
 
 router = Router()
 bot = Bot(token=TOKEN)
@@ -20,16 +22,60 @@ TRANSLATIONS = {
         "menu_title": "📂 Главное меню:",
         "btn_fio": "🔍 Поиск по ФИО",
         "enter_fio": "Введите ФИО для поиска:",
-        "searching": "[*] Выполняется кросс-платформенный поиск..."
+        "not_found": "[-] Ничего не найдено."
     },
     "en": {
         "start": "👋 Hello!",
         "menu_title": "📂 Main menu:",
         "btn_fio": "🔍 Full Name Search",
         "enter_fio": "Enter full name to search:",
-        "searching": "[*] Running cross-platform search..."
+        "not_found": "[-] Nothing found."
     }
 }
+
+def init_db():
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS targets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fio TEXT,
+                phone TEXT,
+                telegram TEXT,
+                tg_id TEXT,
+                vk TEXT,
+                facebook TEXT,
+                ok TEXT,
+                max TEXT
+            )
+        """)
+        conn.commit()
+
+def search_db(query: str) -> str:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT phone, telegram, tg_id, vk, facebook, ok, max 
+            FROM targets 
+            WHERE fio LIKE ? OR phone LIKE ? OR telegram LIKE ?
+        """, (f"%{query}%", f"%{query}%", f"%{query}%"))
+        rows = cursor.fetchall()
+        
+        if not rows:
+            return ""
+        
+        output = []
+        for r in rows:
+            output.append(
+                f"🔍 Найдено совпадение:\n"
+                f"📱 Телефон: {r[0] or 'нет'}\n"
+                f"💬 Telegram: @{r[1] or 'нет'}\n"
+                f"🆔 Telegram ID: {r[2] or 'нет'}\n"
+                f"🌐 VK: {r[3] or 'нет'}\n"
+                f"📘 Facebook: {r[4] or 'нет'}\n"
+                f"🟢 Одноклассники: {r[5] or 'нет'}\n"
+                f"💬 MAX: {r[6] or 'нет'}"
+            )
+        return "\n\n".join(output)
 
 @router.message(Command("start"))
 async def cmd_start(message: Message):
@@ -78,21 +124,15 @@ async def handle_text(message: Message):
     if state == "waiting_fio":
         user_states.pop(user_id, None)
         query = message.text.strip()
-        await message.answer(TRANSLATIONS[lang]["searching"])
         
-        result = (
-            f"🔍 Результаты поиска для: {query}\n\n"
-            f"📱 Телефон: +7 (999) ***-**-42\n"
-            f"💬 Telegram: @sample_user\n"
-            f"🆔 Telegram ID: 5837405541\n"
-            f"🌐 VK: vk.com/id00000000\n"
-            f"📘 Facebook: facebook.com/sample\n"
-            f"🟢 Одноклассники: ok.ru/profile/000000\n"
-            f"💬 MAX: найдено совпадение"
-        )
+        result = search_db(query)
+        if not result:
+            result = TRANSLATIONS[lang]["not_found"]
+            
         await message.answer(result)
 
 async def main():
+    init_db()
     dp.include_router(router)
     await dp.start_polling(bot)
 
